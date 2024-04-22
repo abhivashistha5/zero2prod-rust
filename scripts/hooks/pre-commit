@@ -1,0 +1,16 @@
+#!/bin/bash
+# Run clippy
+cargo clippy 
+if [ $? -ne 0 ]; then
+  echo "Clippy found issues. Commit aborted."
+  exit 1
+fi
+
+# Run cargo check
+cargo check
+if [ $? -ne 0 ]; then
+  echo "Cargo check failed. Commit aborted."
+  exit 1
+fi
+
+exit 0

@@ -1,0 +1,16 @@
+#!/bin/bash
+# Build the project
+cargo build
+if [ $? -ne 0 ]; then
+  echo "Build failed. Push aborted."
+  exit 1
+fi
+
+# Run the tests
+cargo test
+if [ $? -ne 0 ]; then
+  echo "Tests failed. Push aborted."
+  exit 1
+fi
+
+exit 0
