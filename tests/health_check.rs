@@ -1,6 +1,6 @@
 use std::net::TcpListener;
 
-use sqlx::{Connection, PgConnection};
+use sqlx::{Connection, PgConnection, PgPool};
 use zero2prod_rust::configuration;
 
 #[allow(clippy::let_underscore_future)]
@@ -10,10 +10,10 @@ async fn spawn_app() -> String {
 
     let port = listener.local_addr().unwrap().port();
     let connection_string = config.database.connection_string();
-    let db = PgConnection::connect(&connection_string)
+    let db_pool = PgPool::connect(&connection_string)
         .await
         .expect("Failed to connect to db");
-    let server = zero2prod_rust::startup::run(listener, db)
+    let server = zero2prod_rust::startup::run(listener, db_pool)
         .await
         .expect("Failed to bind address");
     let _ = tokio::spawn(server);
