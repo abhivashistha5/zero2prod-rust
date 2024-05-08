@@ -6,8 +6,14 @@ use zero2prod_rust::configuration;
 #[allow(clippy::let_underscore_future)]
 async fn spawn_app() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
+    let config = configuration::get_configuration().expect("Failed to load configuration");
+
     let port = listener.local_addr().unwrap().port();
-    let server = zero2prod_rust::startup::run(listener)
+    let connection_string = config.database.connection_string();
+    let db = PgConnection::connect(&connection_string)
+        .await
+        .expect("Failed to connect to db");
+    let server = zero2prod_rust::startup::run(listener, db)
         .await
         .expect("Failed to bind address");
     let _ = tokio::spawn(server);
@@ -34,6 +40,7 @@ async fn health_check_works() {
 #[tokio::test]
 async fn subscribe_returns_200_valid_form_data() {
     let address = spawn_app().await;
+
     let config = configuration::get_configuration().expect("Failed to load configuration");
     let connection_string = config.database.connection_string();
     let mut db = PgConnection::connect(&connection_string)

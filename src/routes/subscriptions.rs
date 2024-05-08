@@ -1,4 +1,9 @@
-use actix_web::{web::Form, HttpResponse, Responder};
+use actix_web::{
+    web::{self, Form},
+    HttpResponse, Responder,
+};
+use sqlx::{types::chrono::Utc, PgConnection};
+use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -6,6 +11,21 @@ pub struct FormData {
     email: String,
 }
 
-pub async fn subscribe(_form: Form<FormData>) -> impl Responder {
+pub async fn subscribe(
+    form: Form<FormData>,
+    db_connection: web::Data<PgConnection>,
+) -> impl Responder {
+    sqlx::query!(
+        r#"
+    INSERT INTO subscriptions(id, email, name, subscribed_at)
+    VALUES ($1, $2, $3, $4)
+    "#,
+        Uuid::new_v4(),
+        form.email,
+        form.name,
+        Utc::now()
+    )
+    .execute(db_connection.get_ref())
+    .await;
     HttpResponse::Ok().finish()
 }
