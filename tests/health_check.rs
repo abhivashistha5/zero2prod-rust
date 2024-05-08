@@ -1,7 +1,9 @@
+use sqlx::Executor;
 use std::net::TcpListener;
 
-use sqlx::PgPool;
-use zero2prod_rust::configuration;
+use sqlx::{Connection, PgConnection, PgPool};
+use uuid::Uuid;
+use zero2prod_rust::configuration::{self, DatabaseSettings};
 
 pub struct TestApp {
     pub address: String,
@@ -11,13 +13,14 @@ pub struct TestApp {
 #[allow(clippy::let_underscore_future)]
 async fn spawn_app() -> TestApp {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
-    let config = configuration::get_configuration().expect("Failed to load configuration");
+    let mut config = configuration::get_configuration().expect("Failed to load configuration");
+
+    // create a temp database name
+    config.database.database_name = format!("test_{}", Uuid::new_v4());
 
     let port = listener.local_addr().unwrap().port();
-    let connection_string = config.database.connection_string();
-    let db_pool = PgPool::connect(&connection_string)
-        .await
-        .expect("Failed to connect to db");
+
+    let db_pool = configure_database(&config.database).await;
     let server = zero2prod_rust::startup::run(listener, db_pool.clone())
         .await
         .expect("Failed to bind address");
@@ -27,6 +30,28 @@ async fn spawn_app() -> TestApp {
         address: format!("http://127.0.0.1:{}", port),
         db_pool,
     }
+}
+
+pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
+    let mut connection = PgConnection::connect(&config.connection_string_without_db_name())
+        .await
+        .expect("Failed to connect to database");
+
+    connection
+        .execute(format!(r#"CREATE DATABASE "{}";"#, config.database_name).as_str())
+        .await
+        .expect("Failed to create database");
+
+    let connection_pool = PgPool::connect(&config.connection_string())
+        .await
+        .expect("Failed to connect to database");
+
+    sqlx::migrate!("./migrations")
+        .run(&connection_pool)
+        .await
+        .expect("Failed to run migrations");
+
+    connection_pool
 }
 
 #[tokio::test]
