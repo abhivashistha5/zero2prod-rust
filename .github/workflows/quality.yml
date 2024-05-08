@@ -20,9 +20,18 @@ jobs:
 
   Test:
     runs-on: ubuntu-latest
-
+    services:
+      postgres:
+        image: postgres
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v3
+      - name: Migrate database
+        run: |
+          sudo apt-get install libpq-dev -y
+          cargo install sqlx-cli --no-default-features --features postgres
+          SKIP_DOCKER=true ./scripts/init_db.sh
       - name: Check
         run: cargo check
       - name: Build
