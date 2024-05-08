@@ -8,6 +8,7 @@ use zero2prod_rust::configuration::{self, DatabaseSettings};
 pub struct TestApp {
     pub address: String,
     pub db_pool: PgPool,
+    pub config: configuration::Settings,
 }
 
 #[allow(clippy::let_underscore_future)]
@@ -29,6 +30,7 @@ async fn spawn_app() -> TestApp {
     TestApp {
         address: format!("http://127.0.0.1:{}", port),
         db_pool,
+        config,
     }
 }
 
@@ -54,6 +56,20 @@ pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
     connection_pool
 }
 
+pub async fn clean_up(config: configuration::Settings, db_pool: PgPool) {
+    db_pool.close().await;
+
+    let mut connection =
+        PgConnection::connect(&config.database.connection_string_without_db_name())
+            .await
+            .expect("Failed to connect to database");
+
+    connection
+        .execute(format!(r#"DROP DATABASE "{}";"#, config.database.database_name).as_str())
+        .await
+        .expect("Failed to drop database");
+}
+
 #[tokio::test]
 async fn health_check_works() {
     let app = spawn_app().await;
@@ -68,6 +84,8 @@ async fn health_check_works() {
 
     assert!(response.status().is_success());
     assert_eq!(Some(5), response.content_length());
+
+    clean_up(app.config, app.db_pool).await;
 }
 
 #[tokio::test]
@@ -94,6 +112,8 @@ async fn subscribe_returns_200_valid_form_data() {
 
     assert_eq!(saved.email, "bruce@wayne.com");
     assert_eq!(saved.name, "Bruce Wayne");
+
+    clean_up(app.config, app.db_pool).await;
 }
 
 #[tokio::test]
@@ -123,4 +143,6 @@ async fn subscribe_returns_400_invalid_request() {
             error_message
         );
     }
+
+    clean_up(app.config, app.db_pool).await;
 }
