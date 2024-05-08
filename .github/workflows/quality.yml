@@ -23,6 +23,10 @@ jobs:
     services:
       postgres:
         image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: newsletter
         ports:
           - 5432:5432
     steps:
