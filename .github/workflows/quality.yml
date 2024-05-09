@@ -12,9 +12,23 @@ env:
 jobs:
   Lint:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: newsletter
+        ports:
+          - 5432:5432
 
     steps:
       - uses: actions/checkout@v3
+      - name: Migrate database
+        run: |
+          sudo apt-get install libpq-dev -y
+          cargo install sqlx-cli --no-default-features --features postgres
+          SKIP_DOCKER=true ./scripts/init_db.sh
       - name: Clippy
         run: cargo clippy
 
