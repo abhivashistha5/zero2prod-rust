@@ -1,9 +1,13 @@
+use once_cell::sync::Lazy;
 use sqlx::Executor;
 use std::net::TcpListener;
 
 use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
-use zero2prod_rust::configuration::{self, DatabaseSettings};
+use zero2prod_rust::{
+    configuration::{self, DatabaseSettings},
+    telemetry::{get_subscriber, init_subscriber},
+};
 
 pub struct TestApp {
     pub address: String,
@@ -11,8 +15,21 @@ pub struct TestApp {
     pub config: configuration::Settings,
 }
 
+static TRACING: Lazy<()> = Lazy::new(|| {
+    // setup telemetry
+    // logger can be setup only once and running in
+    // spawn app leads to runtime error
+    //
+    // That is why wrapping it up in once_cell
+    let subscriber = get_subscriber("test".into(), "debug".into());
+    init_subscriber(subscriber);
+});
+
 #[allow(clippy::let_underscore_future)]
 async fn spawn_app() -> TestApp {
+    // This will be called only once
+    Lazy::force(&TRACING);
+
     let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
     let mut config = configuration::get_configuration().expect("Failed to load configuration");
 

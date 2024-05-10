@@ -12,6 +12,15 @@ pub struct FormData {
 }
 
 pub async fn subscribe(form: Form<FormData>, db_pool: web::Data<PgPool>) -> impl Responder {
+    let request_id = Uuid::new_v4();
+    let request_span = tracing::info_span!(
+        "Saving new subscriber",
+        %request_id,
+        subs_name = %form.name,
+        email = %form.email
+    );
+    let _request_span_guard = request_span.enter();
+
     let insert_result = sqlx::query!(
         r#"
     INSERT INTO subscriptions(id, email, name, subscribed_at)
@@ -26,9 +35,12 @@ pub async fn subscribe(form: Form<FormData>, db_pool: web::Data<PgPool>) -> impl
     .await;
 
     match insert_result {
-        Ok(_) => HttpResponse::Ok().finish(),
+        Ok(_) => {
+            tracing::info!("Subscriber save success");
+            HttpResponse::Ok().finish()
+        }
         Err(e) => {
-            println!("Failed to execute query: {}", e);
+            tracing::error!("Failed to execute query: {}", e);
             HttpResponse::InternalServerError().finish()
         }
     }
