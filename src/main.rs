@@ -10,7 +10,7 @@ use zero2prod_rust::{
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     // Setup telemetry
-    let subscriber = get_subscriber("zero2prod".into(), "info".into());
+    let subscriber = get_subscriber("zero2prod".into(), "info".into(), std::io::stdout);
     init_subscriber(subscriber);
 
     let config = configuration::get_configuration().expect("Failed to load config");
