@@ -1,4 +1,5 @@
 use once_cell::sync::Lazy;
+use secrecy::ExposeSecret;
 use sqlx::Executor;
 use std::net::TcpListener;
 
@@ -45,6 +46,7 @@ async fn spawn_app() -> TestApp {
     config.database.database_name = format!("test_{}", Uuid::new_v4());
 
     let port = listener.local_addr().unwrap().port();
+    config.application.port = port;
 
     let db_pool = configure_database(&config.database).await;
     let server = zero2prod_rust::startup::run(listener, db_pool.clone())
@@ -60,16 +62,17 @@ async fn spawn_app() -> TestApp {
 }
 
 pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
-    let mut connection = PgConnection::connect(&config.connection_string_without_db_name())
-        .await
-        .expect("Failed to connect to database");
+    let mut connection =
+        PgConnection::connect(config.connection_string_without_db_name().expose_secret())
+            .await
+            .expect("Failed to connect to database");
 
     connection
         .execute(format!(r#"CREATE DATABASE "{}";"#, config.database_name).as_str())
         .await
         .expect("Failed to create database");
 
-    let connection_pool = PgPool::connect(&config.connection_string())
+    let connection_pool = PgPool::connect(config.connection_string().expose_secret())
         .await
         .expect("Failed to connect to database");
 
@@ -84,10 +87,14 @@ pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
 pub async fn clean_up(config: configuration::Settings, db_pool: PgPool) {
     db_pool.close().await;
 
-    let mut connection =
-        PgConnection::connect(&config.database.connection_string_without_db_name())
-            .await
-            .expect("Failed to connect to database");
+    let mut connection = PgConnection::connect(
+        config
+            .database
+            .connection_string_without_db_name()
+            .expose_secret(),
+    )
+    .await
+    .expect("Failed to connect to database");
 
     connection
         .execute(format!(r#"DROP DATABASE "{}";"#, config.database.database_name).as_str())
