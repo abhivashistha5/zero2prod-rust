@@ -38,7 +38,7 @@ export PGPASSWORD="${DB_PASSWORD}"
 export DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
 
 # Launch docker
-if [[ -z "SKIP_DOCKER" ]]; then
+if [[ -z $SKIP_DOCKER ]]; then
   docker run \
     -e POSTGRES_USER=${DB_USER} \
     -e POSTGRES_PASSWORD=${DB_PASSWORD} \
