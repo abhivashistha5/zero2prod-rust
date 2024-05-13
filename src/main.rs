@@ -1,7 +1,6 @@
 use std::net::TcpListener;
 
-use secrecy::ExposeSecret;
-use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use zero2prod_rust::{
     configuration,
     startup::run,
@@ -16,9 +15,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     let config = configuration::get_configuration().expect("Failed to load config");
     let address = format!("{}:{}", config.application.host, config.application.port);
-    let db_connection_pool =
-        PgPool::connect_lazy(config.database.connection_string().expose_secret())
-            .expect("Failed to connect to database");
+    let db_connection_pool = PgPoolOptions::new().connect_lazy_with(config.database.with_db());
     let listener = TcpListener::bind(address).expect("Failed to bind to port");
     run(listener, db_connection_pool).await?.await
 }
