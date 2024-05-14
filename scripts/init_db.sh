@@ -39,6 +39,7 @@ export DATABASE_URL="postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/
 
 # Launch docker
 if [[ -z $SKIP_DOCKER ]]; then
+  echo "Starting Postgres container..."
   docker run \
     -e POSTGRES_USER=${DB_USER} \
     -e POSTGRES_PASSWORD=${DB_PASSWORD} \
@@ -46,6 +47,8 @@ if [[ -z $SKIP_DOCKER ]]; then
     -p "${DB_PORT}:5432" \
     -d --name newsletter_db \
     postgres -N 1000
+else 
+  echo "Skipping docker run..."
 fi
 
 # Check for postgres ready
@@ -54,10 +57,12 @@ until ${POSTGRES_CLI} -h "${DB_HOST}" -U "${DB_USER}" -p "${DB_PORT}" -l &> /dev
   sleep 1
 done
 
->&2 echo "Postgres is up and running on port ${DB_PORT}"
+echo "Postgres is up and running on port ${DB_PORT}"
+
+echo "Running migrations..."
 
 sqlx database create
 sqlx migrate run
 
->&2 echo "Postgres has been migrated, ready to go!"
+echo "Postgres has been migrated, ready to go!"
 

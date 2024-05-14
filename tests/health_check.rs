@@ -42,7 +42,8 @@ async fn spawn_app() -> TestApp {
     let mut config = configuration::get_configuration().expect("Failed to load configuration");
 
     // create a temp database name
-    config.database.database_name = format!("test_{}", Uuid::new_v4());
+    config.database.database_name =
+        format!("test_{}", Uuid::new_v4().to_string().replace('-', "_"));
 
     let port = listener.local_addr().unwrap().port();
     config.application.port = port;
@@ -151,6 +152,33 @@ async fn subscribe_returns_400_invalid_request() {
         ("email=bruce%40wayne.com", "Missing name"),
         ("", "Missing name and email"),
     ];
+
+    for (body, error_message) in inputs {
+        let response = client
+            .post(format!("{}/subscriptions", app.address))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await
+            .expect("Failed to execute request.");
+
+        assert_eq!(
+            reqwest::StatusCode::BAD_REQUEST,
+            response.status(),
+            "Api did not failed with bad request error: {}",
+            error_message
+        );
+    }
+
+    clean_up(app.config, app.db_pool).await;
+}
+
+#[tokio::test]
+async fn subscribe_returns_400_on_empty_name() {
+    let app = spawn_app().await;
+    let client = reqwest::Client::new();
+
+    let inputs = vec![("name=&email=bruce%40wayne.com", "Missing name")];
 
     for (body, error_message) in inputs {
         let response = client
