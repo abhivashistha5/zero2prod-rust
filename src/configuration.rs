@@ -3,10 +3,13 @@ use serde;
 use serde_aux::field_attributes::deserialize_number_from_string;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 
+use crate::domain::SubscriberEmail;
+
 #[derive(serde::Deserialize)]
 pub struct Settings {
     pub database: DatabaseSettings,
     pub application: ApplicationSettings,
+    pub email: EmailSettings,
 }
 
 #[derive(serde::Deserialize)]
@@ -95,5 +98,17 @@ impl TryFrom<String> for Environment {
             "production" => Ok(Self::Production),
             other => Err(format!("{} is not supported environment", other)),
         }
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct EmailSettings {
+    pub base_url: String,
+    sender: String,
+}
+
+impl EmailSettings {
+    pub fn sender(&self) -> SubscriberEmail {
+        SubscriberEmail::parse(String::from(&self.sender)).expect("Unable to parse sender email")
     }
 }

@@ -8,3 +8,6 @@ database:
   password: "password"
   database_name: "newsletter"
   require_ssl: false
+email:
+  base_url: "http://localhost/"
+  sender: "test@example.com"

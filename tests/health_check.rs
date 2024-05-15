@@ -6,6 +6,7 @@ use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 use zero2prod_rust::{
     configuration::{self, DatabaseSettings},
+    email_client::EmailClient,
     telemetry::{get_subscriber, init_subscriber},
 };
 
@@ -49,7 +50,8 @@ async fn spawn_app() -> TestApp {
     config.application.port = port;
 
     let db_pool = configure_database(&config.database).await;
-    let server = zero2prod_rust::startup::run(listener, db_pool.clone())
+    let email_client = EmailClient::new(config.email.base_url.as_str(), config.email.sender());
+    let server = zero2prod_rust::startup::run(listener, db_pool.clone(), email_client)
         .await
         .expect("Failed to bind address");
     let _ = tokio::spawn(server);
