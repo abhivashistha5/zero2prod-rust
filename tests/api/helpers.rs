@@ -13,6 +13,19 @@ pub struct TestApp {
     pub config: configuration::Settings,
 }
 
+impl TestApp {
+    pub async fn post_subscriptions(&self, body: String) -> reqwest::Response {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("{}/subscriptions", self.address))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+}
+
 static TRACING: Lazy<()> = Lazy::new(|| {
     // setup telemetry
     // tracing can be initialized only once and running in

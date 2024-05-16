@@ -6,16 +6,9 @@ use crate::helpers::spawn_app;
 async fn subscribe_returns_200_valid_form_data(db_pool: PgPool) {
     let app = spawn_app(db_pool).await;
 
-    let client = reqwest::Client::new();
     let body = "name=Bruce%20Wayne&email=bruce%40wayne.com";
 
-    let response = client
-        .post(format!("{}/subscriptions", app.address))
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .body(body)
-        .send()
-        .await
-        .expect("Failed to execute request.");
+    let response = app.post_subscriptions(body.into()).await;
 
     assert_eq!(reqwest::StatusCode::OK, response.status());
 
@@ -31,7 +24,6 @@ async fn subscribe_returns_200_valid_form_data(db_pool: PgPool) {
 #[sqlx::test]
 async fn subscribe_returns_400_invalid_request(db_pool: PgPool) {
     let app = spawn_app(db_pool).await;
-    let client = reqwest::Client::new();
 
     let inputs = vec![
         ("name=Bruce%20Wayne", "Missing email"),
@@ -40,13 +32,7 @@ async fn subscribe_returns_400_invalid_request(db_pool: PgPool) {
     ];
 
     for (body, error_message) in inputs {
-        let response = client
-            .post(format!("{}/subscriptions", app.address))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .send()
-            .await
-            .expect("Failed to execute request.");
+        let response = app.post_subscriptions(body.into()).await;
 
         assert_eq!(
             reqwest::StatusCode::BAD_REQUEST,
@@ -60,18 +46,11 @@ async fn subscribe_returns_400_invalid_request(db_pool: PgPool) {
 #[sqlx::test]
 async fn subscribe_returns_400_on_empty_name(db_pool: PgPool) {
     let app = spawn_app(db_pool).await;
-    let client = reqwest::Client::new();
 
     let inputs = vec![("name=&email=bruce%40wayne.com", "Missing name")];
 
     for (body, error_message) in inputs {
-        let response = client
-            .post(format!("{}/subscriptions", app.address))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .send()
-            .await
-            .expect("Failed to execute request.");
+        let response = app.post_subscriptions(body.into()).await;
 
         assert_eq!(
             reqwest::StatusCode::BAD_REQUEST,
