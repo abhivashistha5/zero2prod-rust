@@ -54,6 +54,7 @@ async fn spawn_app() -> TestApp {
         config.email.base_url.as_str(),
         config.email.sender(),
         config.email.authorization_token.clone(),
+        config.email.timeout(),
     );
     let server = zero2prod_rust::startup::run(listener, db_pool.clone(), email_client)
         .await

@@ -25,6 +25,7 @@ async fn main() -> Result<(), std::io::Error> {
         config.email.base_url.as_str(),
         config.email.sender(),
         config.email.authorization_token.clone(),
+        config.email.timeout(),
     );
 
     run(listener, db_connection_pool, email_client).await?.await

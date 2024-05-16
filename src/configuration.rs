@@ -106,10 +106,16 @@ pub struct EmailSettings {
     pub base_url: String,
     sender: String,
     pub authorization_token: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    timeout_milliseconds: u64,
 }
 
 impl EmailSettings {
     pub fn sender(&self) -> SubscriberEmail {
         SubscriberEmail::parse(String::from(&self.sender)).expect("Unable to parse sender email")
+    }
+
+    pub fn timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.timeout_milliseconds)
     }
 }
