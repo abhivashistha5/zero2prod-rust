@@ -1,10 +1,6 @@
-use std::net::TcpListener;
-
-use sqlx::postgres::PgPoolOptions;
 use zero2prod_rust::{
     configuration,
-    email_client::EmailClient,
-    startup::run,
+    startup::{get_connection_pool, Application},
     telemetry::{get_subscriber, init_subscriber},
 };
 
@@ -16,17 +12,9 @@ async fn main() -> Result<(), std::io::Error> {
 
     let config = configuration::get_configuration().expect("Failed to load config");
 
-    let address = format!("{}:{}", config.application.host, config.application.port);
-    let listener = TcpListener::bind(address).expect("Failed to bind to port");
-
-    let db_connection_pool = PgPoolOptions::new().connect_lazy_with(config.database.with_db());
-
-    let email_client = EmailClient::new(
-        config.email.base_url.as_str(),
-        config.email.sender(),
-        config.email.authorization_token.clone(),
-        config.email.timeout(),
-    );
-
-    run(listener, db_connection_pool, email_client).await?.await
+    Application::build(&config, get_connection_pool(&config.database))
+        .await
+        .expect("Failed to build application")
+        .run_until_stopped()
+        .await
 }
