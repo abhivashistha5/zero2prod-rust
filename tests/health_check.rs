@@ -50,7 +50,11 @@ async fn spawn_app() -> TestApp {
     config.application.port = port;
 
     let db_pool = configure_database(&config.database).await;
-    let email_client = EmailClient::new(config.email.base_url.as_str(), config.email.sender());
+    let email_client = EmailClient::new(
+        config.email.base_url.as_str(),
+        config.email.sender(),
+        config.email.authorization_token.clone(),
+    );
     let server = zero2prod_rust::startup::run(listener, db_pool.clone(), email_client)
         .await
         .expect("Failed to bind address");

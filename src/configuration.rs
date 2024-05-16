@@ -105,6 +105,7 @@ impl TryFrom<String> for Environment {
 pub struct EmailSettings {
     pub base_url: String,
     sender: String,
+    pub authorization_token: Secret<String>,
 }
 
 impl EmailSettings {

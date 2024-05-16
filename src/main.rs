@@ -21,7 +21,11 @@ async fn main() -> Result<(), std::io::Error> {
 
     let db_connection_pool = PgPoolOptions::new().connect_lazy_with(config.database.with_db());
 
-    let email_client = EmailClient::new(config.email.base_url.as_str(), config.email.sender());
+    let email_client = EmailClient::new(
+        config.email.base_url.as_str(),
+        config.email.sender(),
+        config.email.authorization_token.clone(),
+    );
 
     run(listener, db_connection_pool, email_client).await?.await
 }

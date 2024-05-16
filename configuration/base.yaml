@@ -11,3 +11,4 @@ database:
 email:
   base_url: "http://localhost/"
   sender: "test@example.com"
+  authorization_token: "xxx-xxxx-xxx"
