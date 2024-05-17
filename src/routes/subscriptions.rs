@@ -46,28 +46,21 @@ pub async fn subscribe(
 
     let confirmation_link = "https://localhost/subscriptions/confirm";
 
-    let saved_subscriber = insert_subscriber(&new_subscriber, db_pool.get_ref()).await;
-    if saved_subscriber.is_err() {
-        tracing::error!(
-            "Failed to execute query: {}",
-            saved_subscriber.err().unwrap()
-        );
+    if insert_subscriber(&new_subscriber, db_pool.get_ref())
+        .await
+        .is_err()
+    {
         return HttpResponse::InternalServerError().finish();
     }
 
-    let send_email_response = email_client
-        .send_email(
-            &new_subscriber.email,
-            "Welcome!",
-            &format!(r#"Welcome to our newsletter!<br/> Click <a href="{}">here</a> to confirm your subscription"#, confirmation_link),
-            &format!(r#"Welcome to our newsletter!\nVisit {} to confirm your subscription"#, confirmation_link),
-        )
-        .await;
-    if send_email_response.is_err() {
-        tracing::error!(
-            "Failed to send email: {}",
-            send_email_response.err().unwrap()
-        );
+    if send_confirmation_link(
+        email_client.as_ref(),
+        &new_subscriber.email,
+        confirmation_link,
+    )
+    .await
+    .is_err()
+    {
         return HttpResponse::InternalServerError().finish();
     }
 
@@ -100,6 +93,30 @@ pub async fn insert_subscriber(
         tracing::error!("Failed to execute query: {}", e);
         e
     })?;
+
+    Ok(())
+}
+
+#[tracing::instrument(
+    name = "Sending confirmation link"
+    skip(email_client, email, confirmation_link)
+)]
+pub async fn send_confirmation_link(
+    email_client: &EmailClient,
+    email: &SubscriberEmail,
+    confirmation_link: &str,
+) -> Result<(), reqwest::Error> {
+    email_client
+        .send_email(
+            email,
+            "Welcome!",
+            &format!(r#"Welcome to our newsletter!<br/> Click <a href="{}">here</a> to confirm your subscription"#, confirmation_link),
+            &format!(r#"Welcome to our newsletter!\nVisit {} to confirm your subscription"#, confirmation_link),
+        )
+        .await.map_err(|e| {
+        tracing::error!("Failed to send confirmation mail: {}", e);
+        e
+        })?;
 
     Ok(())
 }
