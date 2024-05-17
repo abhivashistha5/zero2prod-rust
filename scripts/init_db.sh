@@ -62,7 +62,12 @@ echo "Postgres is up and running on port ${DB_PORT}"
 echo "Running migrations..."
 
 sqlx database create
-sqlx migrate run
+if sqlx migrate run; then
+  echo "Postgres has been migrated, ready to go!"
+else
+  >&2 echo "Error in running migrations"
+  exit 1
+fi
 
-echo "Postgres has been migrated, ready to go!"
+
 
