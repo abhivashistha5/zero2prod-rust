@@ -1,6 +1,7 @@
 use once_cell::sync::Lazy;
 
 use sqlx::PgPool;
+use wiremock::MockServer;
 use zero2prod_rust::{
     configuration::{self, get_configuration},
     startup::Application,
@@ -11,6 +12,7 @@ pub struct TestApp {
     pub address: String,
     pub db_pool: PgPool,
     pub config: configuration::Settings,
+    pub email_server: MockServer,
 }
 
 impl TestApp {
@@ -50,8 +52,11 @@ pub async fn spawn_app(db_pool: PgPool) -> TestApp {
     Lazy::force(&TRACING);
 
     let mut config = get_configuration().expect("Configuration load failed");
+    let email_server = MockServer::start().await;
+
     // override config for test
     config.application.port = 0; // for selecting random port
+    config.email.base_url = email_server.uri();
 
     let app: Application = Application::build(&config, db_pool.clone())
         .await
@@ -66,5 +71,6 @@ pub async fn spawn_app(db_pool: PgPool) -> TestApp {
         address,
         db_pool,
         config,
+        email_server,
     }
 }

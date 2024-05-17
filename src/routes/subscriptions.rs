@@ -5,7 +5,10 @@ use actix_web::{
 use sqlx::{types::chrono::Utc, PgPool};
 use uuid::Uuid;
 
-use crate::domain::{NewSubscriber, SubscriberEmail, SubscriberName};
+use crate::{
+    domain::{NewSubscriber, SubscriberEmail, SubscriberName},
+    email_client::EmailClient,
+};
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -25,28 +28,51 @@ impl TryFrom<FormData> for NewSubscriber {
 
 #[tracing::instrument(
     name = "Saving a new subscriber",
-    skip(form, db_pool),
+    skip(form, db_pool, email_client),
     fields(
         subs_name = %form.name,
         email = %form.email
     )
 )]
-pub async fn subscribe(form: Form<FormData>, db_pool: web::Data<PgPool>) -> HttpResponse {
+pub async fn subscribe(
+    form: Form<FormData>,
+    db_pool: web::Data<PgPool>,
+    email_client: web::Data<EmailClient>,
+) -> HttpResponse {
     let new_subscriber: NewSubscriber = match form.0.try_into() {
         Ok(sub) => sub,
         Err(e) => return HttpResponse::BadRequest().body(e),
     };
 
-    match insert_subscriber(&new_subscriber, db_pool.get_ref()).await {
-        Ok(_) => {
-            tracing::info!("Subscriber save success");
-            HttpResponse::Ok().finish()
-        }
-        Err(e) => {
-            tracing::error!("Failed to execute query: {}", e);
-            HttpResponse::InternalServerError().finish()
-        }
+    let confirmation_link = "https://localhost/subscriptions/confirm";
+
+    let saved_subscriber = insert_subscriber(&new_subscriber, db_pool.get_ref()).await;
+    if saved_subscriber.is_err() {
+        tracing::error!(
+            "Failed to execute query: {}",
+            saved_subscriber.err().unwrap()
+        );
+        return HttpResponse::InternalServerError().finish();
     }
+
+    let send_email_response = email_client
+        .send_email(
+            &new_subscriber.email,
+            "Welcome!",
+            &format!(r#"Welcome to our newsletter!<br/> Click <a href="{}">here</a> to confirm your subscription"#, confirmation_link),
+            &format!(r#"Welcome to our newsletter!\nVisit {} to confirm your subscription"#, confirmation_link),
+        )
+        .await;
+    if send_email_response.is_err() {
+        tracing::error!(
+            "Failed to send email: {}",
+            send_email_response.err().unwrap()
+        );
+        return HttpResponse::InternalServerError().finish();
+    }
+
+    tracing::info!("Subscriber save success");
+    HttpResponse::Ok().finish()
 }
 
 #[tracing::instrument(
