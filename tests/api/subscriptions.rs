@@ -22,14 +22,31 @@ async fn subscribe_returns_200_valid_form_data(db_pool: PgPool) {
     let response = app.post_subscriptions(body.into()).await;
 
     assert_eq!(reqwest::StatusCode::OK, response.status());
+}
 
-    let saved = sqlx::query!("SELECT email, name FROM subscriptions")
+#[sqlx::test]
+async fn subscribe_saves_data_in_db(db_pool: PgPool) {
+    let app = spawn_app(db_pool).await;
+
+    let body = "name=Bruce%20Wayne&email=bruce%40wayne.com";
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&app.email_server)
+        .await;
+
+    app.post_subscriptions(body.into()).await;
+
+    let saved = sqlx::query!("SELECT email, name, status FROM subscriptions")
         .fetch_one(&app.db_pool)
         .await
         .expect("Failed to fetch subscriptions");
 
     assert_eq!(saved.email, "bruce@wayne.com");
     assert_eq!(saved.name, "Bruce Wayne");
+    assert_eq!(saved.status, "PENDING_CONFIRMATION");
 }
 
 #[sqlx::test]
