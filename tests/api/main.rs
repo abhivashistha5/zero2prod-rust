@@ -1,4 +1,4 @@
-mod health_check;
+mod health_check_tests;
 mod helpers;
-mod subscriptions;
-mod subscriptions_confirm;
+mod subscriptions_confirm_tests;
+mod subscriptions_tests;
