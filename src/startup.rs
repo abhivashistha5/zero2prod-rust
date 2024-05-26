@@ -9,13 +9,12 @@ use crate::{
     email_client::EmailClient,
     routes,
 };
-
 pub struct Application {
-    port: u16,
-    server: Server,
+    pub port: u16,
+    pub server: Server,
 }
 impl Application {
-    pub async fn build(config: &Settings, db_pool: PgPool) -> Result<Self, std::io::Error> {
+    pub async fn build(config: Settings, db_pool: PgPool) -> Result<Self, std::io::Error> {
         let address = format!("{}:{}", config.application.host, config.application.port);
         let listener = TcpListener::bind(address).expect("Failed to bind to port");
 
@@ -28,7 +27,7 @@ impl Application {
 
         Ok(Self {
             port: listener.local_addr().unwrap().port(),
-            server: run(listener, db_pool, email_client).await?,
+            server: run(listener, db_pool, email_client, config.application.base_url).await?,
         })
     }
 
@@ -45,14 +44,18 @@ pub fn get_connection_pool(db_config: &DatabaseSettings) -> PgPool {
     PgPoolOptions::new().connect_lazy_with(db_config.with_db())
 }
 
+pub struct ApplicationBaseUrl(pub String);
+
 pub async fn run(
     listener: TcpListener,
     db_pool: PgPool,
     email_client: EmailClient,
+    base_url: String,
 ) -> Result<Server, std::io::Error> {
     // wrap connection in smart pointer
     let db_connection_pool = web::Data::new(db_pool);
     let email_client = web::Data::new(email_client);
+    let base_url = web::Data::new(ApplicationBaseUrl(base_url));
 
     let server = HttpServer::new(move || {
         App::new()
@@ -62,6 +65,7 @@ pub async fn run(
             .route("/subscriptions/confirm", web::get().to(routes::confirm))
             .app_data(db_connection_pool.clone())
             .app_data(email_client.clone())
+            .app_data(base_url.clone())
     })
     .listen(listener)?
     .run();

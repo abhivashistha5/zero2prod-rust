@@ -11,8 +11,9 @@ async fn main() -> Result<(), std::io::Error> {
     init_subscriber(subscriber);
 
     let config = configuration::get_configuration().expect("Failed to load config");
+    let db_pool = get_connection_pool(&config.database);
 
-    Application::build(&config, get_connection_pool(&config.database))
+    Application::build(config, db_pool)
         .await
         .expect("Failed to build application")
         .run_until_stopped()

@@ -1,17 +1,16 @@
 use once_cell::sync::Lazy;
-
 use sqlx::PgPool;
 use wiremock::MockServer;
 use zero2prod_rust::{
-    configuration::{self, get_configuration},
+    configuration::get_configuration,
     startup::Application,
     telemetry::{get_subscriber, init_subscriber},
 };
 
 pub struct TestApp {
     pub address: String,
+    pub port: u16,
     pub db_pool: PgPool,
-    pub config: configuration::Settings,
     pub email_server: MockServer,
 }
 
@@ -58,19 +57,18 @@ pub async fn spawn_app(db_pool: PgPool) -> TestApp {
     config.application.port = 0; // for selecting random port
     config.email.base_url = email_server.uri();
 
-    let app: Application = Application::build(&config, db_pool.clone())
+    let app: Application = Application::build(config, db_pool.clone())
         .await
         .expect("Failed to start server");
-    config.application.port = app.port();
+    let address = format!("http://127.0.0.1:{}", app.port);
+    let port = app.port;
 
     let _ = tokio::spawn(app.run_until_stopped());
 
-    let address = format!("http://127.0.0.1:{}", config.application.port);
-
     TestApp {
         address,
+        port,
         db_pool,
-        config,
         email_server,
     }
 }
