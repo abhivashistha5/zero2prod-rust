@@ -115,11 +115,16 @@ async fn subscribe_sends_a_confirmation_mail_with_a_link(db_pool: PgPool) {
         .mount(&app.email_server)
         .await;
 
-    app.post_subscriptions(body.into()).await;
+    let response = app.post_subscriptions(body.into()).await;
 
-    let email_request = &app.email_server.received_requests().await.unwrap()[0];
+    tracing::trace!("Response: {:?}", response);
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
 
-    let confirmation_links = app.get_confirmation_links(email_request);
+    let email_request = &app.email_server.received_requests().await.unwrap();
+
+    assert_eq!(email_request.len(), 1);
+
+    let confirmation_links = app.get_confirmation_links(&email_request[0]);
 
     assert_eq!(confirmation_links.html, confirmation_links.plain_text);
 }
