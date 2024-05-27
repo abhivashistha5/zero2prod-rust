@@ -1,10 +1,12 @@
+use std::ops::DerefMut;
+
 use actix_web::{
     web::{self, Form},
     HttpResponse,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use secrecy::ExposeSecret;
-use sqlx::{types::chrono::Utc, PgPool};
+use sqlx::{types::chrono::Utc, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
@@ -49,13 +51,20 @@ pub async fn subscribe(
     };
 
     let token = generate_subscription_token();
+    let mut transaction = match db_pool.begin().await {
+        Ok(t) => t,
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
 
-    let subscriber_id = match insert_subscriber(&new_subscriber, db_pool.get_ref()).await {
+    let subscriber_id = match insert_subscriber(&new_subscriber, &mut transaction).await {
         Ok(subscriber_id) => subscriber_id,
         Err(_) => return HttpResponse::InternalServerError().finish(),
     };
 
-    if save_token(subscriber_id, &token, &db_pool).await.is_err() {
+    if save_token(subscriber_id, &token, &mut transaction)
+        .await
+        .is_err()
+    {
         return HttpResponse::InternalServerError().finish();
     }
 
@@ -72,17 +81,22 @@ pub async fn subscribe(
         return HttpResponse::InternalServerError().finish();
     }
 
+    if transaction.commit().await.is_err() {
+        tracing::error!("Error in commiting transaction");
+        return HttpResponse::InternalServerError().finish();
+    }
+
     tracing::info!("Subscriber save success");
     HttpResponse::Ok().finish()
 }
 
 #[tracing::instrument(
     name = "Saving subscriber in db"
-    skip(new_subscriber, db_pool)
+    skip(new_subscriber, transaction)
 )]
 pub async fn insert_subscriber(
     new_subscriber: &NewSubscriber,
-    db_pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<uuid::Uuid, sqlx::Error> {
     let subscriber_id = Uuid::new_v4();
     sqlx::query!(
@@ -96,7 +110,7 @@ pub async fn insert_subscriber(
         Utc::now(),
         "PENDING_CONFIRMATION",
     )
-    .execute(db_pool)
+    .execute(transaction.deref_mut())
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {}", e);
@@ -154,12 +168,12 @@ fn generate_subscription_token() -> secrecy::Secret<String> {
 
 #[tracing::instrument(
     name = "Saving token in db"
-    skip(subscription_token)
+    skip(subscription_token, transaction)
 )]
 pub async fn save_token(
     subscriber_id: uuid::Uuid,
     subscription_token: &secrecy::Secret<String>,
-    db_pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
@@ -169,7 +183,7 @@ pub async fn save_token(
         subscription_token.expose_secret(),
         subscriber_id,
     )
-    .execute(db_pool)
+    .execute(transaction.deref_mut())
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {}", e);

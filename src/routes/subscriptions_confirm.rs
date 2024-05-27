@@ -1,5 +1,7 @@
+use std::ops::DerefMut;
+
 use actix_web::{web, HttpResponse};
-use sqlx::PgPool;
+use sqlx::{Executor, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
@@ -12,10 +14,13 @@ pub async fn confirm(
     param: web::Query<SubConfirmationParam>,
     db_pool: web::Data<PgPool>,
 ) -> HttpResponse {
-    tracing::trace!("Parameters recieved: {:?}", param.subscription_token);
+    let mut transaction = match db_pool.begin().await {
+        Ok(t) => t,
+        Err(_) => return HttpResponse::InternalServerError().finish(),
+    };
 
     let subscriber_id =
-        match get_subscriber_id_from_token(&db_pool, &param.subscription_token).await {
+        match get_subscriber_id_from_token(&mut transaction, &param.subscription_token).await {
             Ok(id) => id,
             Err(_) => return HttpResponse::InternalServerError().finish(),
         };
@@ -24,26 +29,30 @@ pub async fn confirm(
         return HttpResponse::NotFound().finish();
     }
 
-    if set_subscriber_status_to_confirmed(&db_pool, subscriber_id.unwrap())
+    if set_subscriber_status_to_confirmed(&mut transaction, subscriber_id.unwrap())
         .await
         .is_err()
     {
         return HttpResponse::InternalServerError().finish();
     }
 
+    if transaction.commit().await.is_err() {
+        return HttpResponse::InternalServerError().finish();
+    }
+
     HttpResponse::Ok().finish()
 }
 
-#[tracing::instrument(name = "Get subscriber id from token", skip(db_pool, token))]
+#[tracing::instrument(name = "Get subscriber id from token", skip(transaction, token))]
 async fn get_subscriber_id_from_token(
-    db_pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
     token: &str,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     let result = sqlx::query!(
         r#"SELECT subscriber_id FROM subscription_tokens WHERE subscription_token = $1"#,
         token
     )
-    .fetch_optional(db_pool)
+    .fetch_optional(transaction.deref_mut())
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {:?}", e);
@@ -53,18 +62,17 @@ async fn get_subscriber_id_from_token(
     Ok(result.map(|r| r.subscriber_id))
 }
 
-#[tracing::instrument(name = "Set subscriber status to confirmed", skip(db_pool))]
+#[tracing::instrument(name = "Set subscriber status to confirmed", skip(transaction))]
 async fn set_subscriber_status_to_confirmed(
-    db_pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
     subscriber_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!(
+    let query = sqlx::query!(
         r#"UPDATE subscriptions SET status = 'CONFIRMED' WHERE id = $1"#,
         subscriber_id
-    )
-    .execute(db_pool)
-    .await
-    .map_err(|e| {
+    );
+
+    transaction.execute(query).await.map_err(|e| {
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
