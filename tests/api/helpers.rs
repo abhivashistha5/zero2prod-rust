@@ -74,7 +74,7 @@ static TRACING: Lazy<()> = Lazy::new(|| {
         log_filter_level = std::env::var("LOG_LEVEL").unwrap();
     }
 
-    if std::env::var("TEST_LOG").is_ok() {
+    if std::env::var("TEST_LOG").unwrap_or("false".into()) == "true" {
         let subscriber = get_subscriber(subscriber_name, log_filter_level, std::io::stdout);
         init_subscriber(subscriber);
     } else {
