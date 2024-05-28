@@ -25,9 +25,11 @@ pub struct SaveTokenError(sqlx::Error);
 
 pub enum SubscribeError {
     ValidationError(String),
-    DatabaseError(sqlx::Error),
     SaveTokenError(SaveTokenError),
     SendEmailError(reqwest::Error),
+    PoolError(sqlx::Error),
+    InsertSubscriberError(sqlx::Error),
+    TransactionCommitError(sqlx::Error),
 }
 
 impl TryFrom<FormData> for NewSubscriber {
@@ -64,11 +66,19 @@ impl std::fmt::Display for SubscribeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SubscribeError::ValidationError(e) => write!(f, "{}", e),
-            SubscribeError::DatabaseError(_) => write!(f, "???"),
             SubscribeError::SaveTokenError(_) => {
                 write!(f, "Failed to save token for new subscriber")
             }
             SubscribeError::SendEmailError(_) => write!(f, "Failed to send confirmation mail"),
+            SubscribeError::PoolError(_) => {
+                write!(f, "Failed to acquire Postgres connection from pool")
+            }
+            SubscribeError::InsertSubscriberError(_) => {
+                write!(f, "Failed to insert new subscriber in database")
+            }
+            SubscribeError::TransactionCommitError(_) => {
+                write!(f, "Failed to commit transaction to database")
+            }
         }
     }
 }
@@ -84,8 +94,10 @@ impl std::error::Error for SubscribeError {
         match self {
             SubscribeError::ValidationError(_) => None,
             SubscribeError::SendEmailError(e) => Some(e),
-            SubscribeError::DatabaseError(e) => Some(e),
             SubscribeError::SaveTokenError(e) => Some(e),
+            SubscribeError::PoolError(e) => Some(e),
+            SubscribeError::InsertSubscriberError(e) => Some(e),
+            SubscribeError::TransactionCommitError(e) => Some(e),
         }
     }
 }
@@ -94,7 +106,9 @@ impl ResponseError for SubscribeError {
     fn status_code(&self) -> actix_web::http::StatusCode {
         match self {
             SubscribeError::ValidationError(_) => actix_web::http::StatusCode::BAD_REQUEST,
-            SubscribeError::DatabaseError(_)
+            SubscribeError::PoolError(_)
+            | SubscribeError::InsertSubscriberError(_)
+            | SubscribeError::TransactionCommitError(_)
             | SubscribeError::SaveTokenError(_)
             | SubscribeError::SendEmailError(_) => {
                 actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
@@ -107,12 +121,6 @@ impl ResponseError for SubscribeError {
 impl From<reqwest::Error> for SubscribeError {
     fn from(e: reqwest::Error) -> Self {
         Self::SendEmailError(e)
-    }
-}
-
-impl From<sqlx::Error> for SubscribeError {
-    fn from(e: sqlx::Error) -> Self {
-        Self::DatabaseError(e)
     }
 }
 
@@ -146,15 +154,20 @@ pub async fn subscribe(
 
     let token = generate_subscription_token();
 
-    let mut transaction = db_pool.begin().await?;
+    let mut transaction = db_pool.begin().await.map_err(SubscribeError::PoolError)?;
 
-    let subscriber_id = insert_subscriber(&new_subscriber, &mut transaction).await?;
+    let subscriber_id = insert_subscriber(&new_subscriber, &mut transaction)
+        .await
+        .map_err(SubscribeError::InsertSubscriberError)?;
 
     save_token(subscriber_id, &token, &mut transaction).await?;
 
     let confirmation_link = generate_confirmation_link(&base_url.0, &token);
 
-    transaction.commit().await?;
+    transaction
+        .commit()
+        .await
+        .map_err(SubscribeError::TransactionCommitError)?;
 
     send_confirmation_link(
         email_client.as_ref(),
