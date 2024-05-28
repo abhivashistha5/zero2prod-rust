@@ -23,6 +23,13 @@ pub struct FormData {
 
 pub struct SaveTokenError(sqlx::Error);
 
+pub enum SubscribeError {
+    ValidationError(String),
+    DatabaseError(sqlx::Error),
+    SaveTokenError(SaveTokenError),
+    SendEmailError(reqwest::Error),
+}
+
 impl TryFrom<FormData> for NewSubscriber {
     type Error = String;
 
@@ -53,6 +60,74 @@ impl std::error::Error for SaveTokenError {
     }
 }
 
+impl std::fmt::Display for SubscribeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SubscribeError::ValidationError(e) => write!(f, "{}", e),
+            SubscribeError::DatabaseError(_) => write!(f, "???"),
+            SubscribeError::SaveTokenError(_) => {
+                write!(f, "Failed to save token for new subscriber")
+            }
+            SubscribeError::SendEmailError(_) => write!(f, "Failed to send confirmation mail"),
+        }
+    }
+}
+
+impl std::fmt::Debug for SubscribeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        error_chain_fmt(self, f)
+    }
+}
+
+impl std::error::Error for SubscribeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SubscribeError::ValidationError(_) => None,
+            SubscribeError::SendEmailError(e) => Some(e),
+            SubscribeError::DatabaseError(e) => Some(e),
+            SubscribeError::SaveTokenError(e) => Some(e),
+        }
+    }
+}
+
+impl ResponseError for SubscribeError {
+    fn status_code(&self) -> actix_web::http::StatusCode {
+        match self {
+            SubscribeError::ValidationError(_) => actix_web::http::StatusCode::BAD_REQUEST,
+            SubscribeError::DatabaseError(_)
+            | SubscribeError::SaveTokenError(_)
+            | SubscribeError::SendEmailError(_) => {
+                actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+            }
+        }
+    }
+}
+
+// Error conversions
+impl From<reqwest::Error> for SubscribeError {
+    fn from(e: reqwest::Error) -> Self {
+        Self::SendEmailError(e)
+    }
+}
+
+impl From<sqlx::Error> for SubscribeError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::DatabaseError(e)
+    }
+}
+
+impl From<SaveTokenError> for SubscribeError {
+    fn from(e: SaveTokenError) -> Self {
+        Self::SaveTokenError(e)
+    }
+}
+
+impl From<String> for SubscribeError {
+    fn from(e: String) -> Self {
+        Self::ValidationError(e)
+    }
+}
+
 #[tracing::instrument(
     name = "Saving a new subscriber",
     skip(form, db_pool, email_client, base_url),
@@ -66,42 +141,27 @@ pub async fn subscribe(
     db_pool: web::Data<PgPool>,
     email_client: web::Data<EmailClient>,
     base_url: web::Data<ApplicationBaseUrl>,
-) -> Result<HttpResponse, actix_web::Error> {
-    let new_subscriber: NewSubscriber = match form.0.try_into() {
-        Ok(sub) => sub,
-        Err(e) => return Ok(HttpResponse::BadRequest().body(e)),
-    };
+) -> Result<HttpResponse, SubscribeError> {
+    let new_subscriber: NewSubscriber = form.0.try_into()?;
 
     let token = generate_subscription_token();
-    let mut transaction = match db_pool.begin().await {
-        Ok(t) => t,
-        Err(_) => return Ok(HttpResponse::InternalServerError().finish()),
-    };
 
-    let subscriber_id = match insert_subscriber(&new_subscriber, &mut transaction).await {
-        Ok(subscriber_id) => subscriber_id,
-        Err(_) => return Ok(HttpResponse::InternalServerError().finish()),
-    };
+    let mut transaction = db_pool.begin().await?;
+
+    let subscriber_id = insert_subscriber(&new_subscriber, &mut transaction).await?;
 
     save_token(subscriber_id, &token, &mut transaction).await?;
 
     let confirmation_link = generate_confirmation_link(&base_url.0, &token);
 
-    if send_confirmation_link(
+    transaction.commit().await?;
+
+    send_confirmation_link(
         email_client.as_ref(),
         &new_subscriber.email,
         confirmation_link,
     )
-    .await
-    .is_err()
-    {
-        return Ok(HttpResponse::InternalServerError().finish());
-    }
-
-    if transaction.commit().await.is_err() {
-        tracing::error!("Error in commiting transaction");
-        return Ok(HttpResponse::InternalServerError().finish());
-    }
+    .await?;
 
     tracing::info!("Subscriber save success");
     Ok(HttpResponse::Ok().finish())
