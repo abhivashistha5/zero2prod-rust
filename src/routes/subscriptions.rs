@@ -4,6 +4,7 @@ use actix_web::{
     web::{self, Form},
     HttpResponse, ResponseError,
 };
+use anyhow::Context;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use secrecy::ExposeSecret;
 use sqlx::{types::chrono::Utc, PgPool, Postgres, Transaction};
@@ -27,8 +28,8 @@ pub enum SubscribeError {
     #[error("{0}")]
     ValidationError(String),
 
-    #[error("{1}")]
-    UnexpectedError(#[source] Box<dyn std::error::Error>, String),
+    #[error(transparent)]
+    UnexpectedError(#[from] anyhow::Error),
 }
 
 impl TryFrom<FormData> for NewSubscriber {
@@ -77,7 +78,7 @@ impl ResponseError for SubscribeError {
     fn status_code(&self) -> actix_web::http::StatusCode {
         match self {
             SubscribeError::ValidationError(_) => actix_web::http::StatusCode::BAD_REQUEST,
-            SubscribeError::UnexpectedError(_, _) => {
+            SubscribeError::UnexpectedError(_) => {
                 actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
             }
         }
@@ -102,25 +103,25 @@ pub async fn subscribe(
 
     let token = generate_subscription_token();
 
-    let mut transaction = db_pool.begin().await.map_err(|e| {
-        SubscribeError::UnexpectedError(Box::new(e), "Failed to aquire transaction".into())
-    })?;
+    let mut transaction = db_pool
+        .begin()
+        .await
+        .context("Failed to aquire transaction")?;
 
     let subscriber_id = insert_subscriber(&new_subscriber, &mut transaction)
         .await
-        .map_err(|e| {
-            SubscribeError::UnexpectedError(Box::new(e), "Failed to insert subscriber".into())
-        })?;
+        .context("Failed to insert subscriber")?;
 
     save_token(subscriber_id, &token, &mut transaction)
         .await
-        .map_err(|e| SubscribeError::UnexpectedError(Box::new(e), "Failed to save token".into()))?;
+        .context("Failed to save token")?;
 
     let confirmation_link = generate_confirmation_link(&base_url.0, &token);
 
-    transaction.commit().await.map_err(|e| {
-        SubscribeError::UnexpectedError(Box::new(e), "Failed to commit transaction".into())
-    })?;
+    transaction
+        .commit()
+        .await
+        .context("Failed to commit transaction")?;
 
     send_confirmation_link(
         email_client.as_ref(),
@@ -128,9 +129,7 @@ pub async fn subscribe(
         confirmation_link,
     )
     .await
-    .map_err(|e| {
-        SubscribeError::UnexpectedError(Box::new(e), "Failed to send confirmation link".into())
-    })?;
+    .context("Failed to send confirmation link")?;
 
     tracing::info!("Subscriber save success");
     Ok(HttpResponse::Ok().finish())
@@ -182,10 +181,7 @@ pub async fn send_confirmation_link(
             &format!(r#"Welcome to our newsletter!<br/> Click <a href="{}">here</a> to confirm your subscription"#, confirmation_link),
             &format!(r#"Welcome to our newsletter!\nVisit {} to confirm your subscription"#, confirmation_link),
         )
-        .await.map_err(|e| {
-        tracing::error!("Failed to send confirmation mail: {}", e);
-        e
-        })?;
+        .await?;
 
     Ok(())
 }
@@ -231,10 +227,7 @@ pub async fn save_token(
     )
     .execute(transaction.deref_mut())
     .await
-    .map_err(|e| {
-        tracing::error!("Failed to execute query: {}", e);
-        SaveTokenError(e)
-    })?;
+    .map_err(SaveTokenError)?;
 
     Ok(())
 }
