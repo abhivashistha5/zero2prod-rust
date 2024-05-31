@@ -63,6 +63,7 @@ pub async fn run(
             .route("/ping", web::get().to(routes::health_check))
             .route("/subscriptions", web::post().to(routes::subscribe))
             .route("/subscriptions/confirm", web::get().to(routes::confirm))
+            .route("/newsletter", web::post().to(routes::publish_newsletter))
             .app_data(db_connection_pool.clone())
             .app_data(email_client.clone())
             .app_data(base_url.clone())
