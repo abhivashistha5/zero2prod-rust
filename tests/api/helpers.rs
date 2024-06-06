@@ -59,6 +59,15 @@ impl TestApp {
             plain_text: plain_text_link,
         }
     }
+
+    pub async fn publish_newsletter(&self, body: serde_json::Value) -> reqwest::Response {
+        reqwest::Client::new()
+            .post(format!("{}/newsletter", &self.address))
+            .json(&body)
+            .send()
+            .await
+            .expect("Failed to execute request")
+    }
 }
 
 static TRACING: Lazy<()> = Lazy::new(|| {

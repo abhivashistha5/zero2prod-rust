@@ -63,12 +63,7 @@ async fn newsletter_should_not_publish_to_pending_subscribers(db_pool: PgPool) {
         }
     });
 
-    let response = reqwest::Client::new()
-        .post(format!("{}/newsletter", &app.address))
-        .json(&newsletter_request_body)
-        .send()
-        .await
-        .expect("Failed to execute request");
+    let response = app.publish_newsletter(newsletter_request_body).await;
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
 }
@@ -93,12 +88,7 @@ async fn newsletter_should_publish_to_confirmed_subscribers(db_pool: PgPool) {
         }
     });
 
-    let response = reqwest::Client::new()
-        .post(format!("{}/newsletter", &app.address))
-        .json(&newsletter_request_body)
-        .send()
-        .await
-        .expect("Failed to execute request");
+    let response = app.publish_newsletter(newsletter_request_body).await;
 
     assert_eq!(response.status(), reqwest::StatusCode::OK);
 }
@@ -150,12 +140,7 @@ async fn newsletter_returns_400_for_invalid_data(db_pool: PgPool) {
     ];
 
     for (invalid_body, error_message) in test_requests {
-        let response = reqwest::Client::new()
-            .post(format!("{}/newsletter", &app.address))
-            .json(&invalid_body)
-            .send()
-            .await
-            .expect("Failed to execute request");
+        let response = app.publish_newsletter(invalid_body).await;
 
         assert_eq!(
             response.status(),
