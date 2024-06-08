@@ -69,15 +69,20 @@ pub async fn publish_newsletter(
         .with_context(|| "Failed to get subscribers from db")?;
 
     for subscriber in subscribers {
-        email_client
-            .send_email(
-                &subscriber.email,
-                &body.title,
-                &body.content.html,
-                &body.content.text,
-            )
-            .await
-            .with_context(|| format!("Failed to send email: {}", subscriber.email.as_ref()))?;
+        match subscriber {
+            Ok(s) => email_client
+                .send_email(
+                    &s.email,
+                    &body.title,
+                    &body.content.html,
+                    &body.content.text,
+                )
+                .await
+                .with_context(|| format!("Failed to send newsletter: {}", s.email))?,
+            Err(error) => {
+                tracing::warn!(error.cause_chain = ?error, "Skipping Confirmed Subscriber. Invalid data stored")
+            }
+        }
     }
 
     Ok(HttpResponse::Ok().finish())
@@ -86,28 +91,17 @@ pub async fn publish_newsletter(
 #[tracing::instrument(name = "Get confirmed subscriber list", skip(db_pool))]
 async fn get_confirmed_subscribers(
     db_pool: &PgPool,
-) -> Result<Vec<ConfirmedSubscriber>, sqlx::Error> {
-    struct Row {
-        email: String,
-    }
-
-    let rows = sqlx::query_as!(
-        Row,
-        r#"SELECT email FROM subscriptions WHERE status = 'CONFIRMED'"#
-    )
-    .fetch_all(db_pool)
-    .await?;
-
-    let confirmed_subscribers = rows
-        .into_iter()
-        .filter_map(|r| match SubscriberEmail::parse(r.email) {
-            Ok(v) => Some(ConfirmedSubscriber { email: v }),
-            Err(e) => {
-                tracing::error!("Confirmed subscriber with invalid email.\n {}", e);
-                None
-            }
-        })
-        .collect();
+) -> Result<Vec<Result<ConfirmedSubscriber, anyhow::Error>>, anyhow::Error> {
+    let confirmed_subscribers =
+        sqlx::query!(r#"SELECT email FROM subscriptions WHERE status = 'CONFIRMED'"#)
+            .fetch_all(db_pool)
+            .await?
+            .into_iter()
+            .map(|r| match SubscriberEmail::parse(r.email) {
+                Ok(v) => Ok(ConfirmedSubscriber { email: v }),
+                Err(e) => Err(anyhow::anyhow!(e)),
+            })
+            .collect();
 
     Ok(confirmed_subscribers)
 }
