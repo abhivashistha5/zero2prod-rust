@@ -63,6 +63,7 @@ impl TestApp {
     pub async fn publish_newsletter(&self, body: serde_json::Value) -> reqwest::Response {
         reqwest::Client::new()
             .post(format!("{}/newsletter", &self.address))
+            .basic_auth(uuid::Uuid::new_v4(), Some(uuid::Uuid::new_v4()))
             .json(&body)
             .send()
             .await

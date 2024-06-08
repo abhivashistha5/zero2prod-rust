@@ -150,3 +150,29 @@ async fn newsletter_returns_400_for_invalid_data(db_pool: PgPool) {
         );
     }
 }
+
+#[sqlx::test]
+async fn request_missing_authorization_is_rejected(db_pool: PgPool) {
+    let app = spawn_app(db_pool).await;
+
+    let body = serde_json::json!({
+        "title": "Newsletter Title",
+        "content": {
+            "text": "Newsletter as plain text",
+            "html": "<p>Newsletter as html</p>",
+        }
+    });
+
+    let response = reqwest::Client::new()
+        .post(format!("{}/newsletter", &app.address))
+        .json(&body)
+        .send()
+        .await
+        .expect("Failed to execute request");
+
+    assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        response.headers()["WWW-Authenticate"],
+        r#"Basic realm="publish""#
+    );
+}
