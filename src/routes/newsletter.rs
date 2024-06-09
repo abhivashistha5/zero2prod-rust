@@ -8,6 +8,7 @@ use actix_web::{
 use anyhow::Context;
 use base64::Engine;
 use secrecy::ExposeSecret;
+use sha3::Digest;
 use sqlx::PgPool;
 
 use crate::{domain::SubscriberEmail, email_client::EmailClient};
@@ -106,7 +107,7 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
     let decoded_credentials =
         String::from_utf8(decoded_bytes).context("The decoded credentials is not valid utf-8")?;
 
-    let mut credentials = decoded_credentials.splitn(2, ":");
+    let mut credentials = decoded_credentials.splitn(2, ':');
 
     let username = credentials
         .next()
@@ -127,14 +128,18 @@ async fn validate_credentials(
     credentials: Credentials,
     db_pool: &PgPool,
 ) -> Result<uuid::Uuid, PublishError> {
+    let password_hash = sha3::Sha3_256::digest(credentials.password.expose_secret().as_bytes());
+
+    let password_hash = format!("{:x}", password_hash);
+
     let user_id: Option<_> = sqlx::query!(
         r#"
     SELECT user_id
     FROM users
-    WHERE username = $1 and password = $2
+    WHERE username = $1 and password_hash = $2
     "#,
         credentials.username,
-        credentials.password.expose_secret()
+        password_hash
     )
     .fetch_optional(db_pool)
     .await

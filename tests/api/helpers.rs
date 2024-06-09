@@ -1,4 +1,5 @@
 use once_cell::sync::Lazy;
+use sha3::Digest;
 use sqlx::PgPool;
 use wiremock::MockServer;
 use zero2prod_rust::{
@@ -12,6 +13,7 @@ pub struct TestApp {
     pub port: u16,
     pub db_pool: PgPool,
     pub email_server: MockServer,
+    pub test_user: TestUser,
 }
 
 pub struct ConfirmationLinks {
@@ -61,23 +63,45 @@ impl TestApp {
     }
 
     pub async fn publish_newsletter(&self, body: serde_json::Value) -> reqwest::Response {
-        let (username, password) = self.test_user().await;
-
         reqwest::Client::new()
             .post(format!("{}/newsletter", &self.address))
-            .basic_auth(username, Some(password))
+            .basic_auth(&self.test_user.username, Some(&self.test_user.password))
             .json(&body)
             .send()
             .await
             .expect("Failed to execute request")
     }
+}
 
-    pub async fn test_user(&self) -> (String, String) {
-        let row = sqlx::query!("SELECT username, password FROM users LIMIT 1")
-            .fetch_one(&self.db_pool)
-            .await
-            .expect("Failed to get test user");
-        (row.username, row.password)
+pub struct TestUser {
+    user_id: uuid::Uuid,
+    username: String,
+    password: String,
+}
+
+impl TestUser {
+    pub fn generate() -> Self {
+        Self {
+            user_id: uuid::Uuid::new_v4(),
+            username: uuid::Uuid::new_v4().to_string(),
+            password: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    pub async fn store(&self, db_pool: &PgPool) {
+        let password_hash = sha3::Sha3_256::digest(self.password.as_bytes());
+
+        let password_hash = format!("{:x}", password_hash);
+
+        sqlx::query!(
+            "INSERT INTO users (user_id, username, password_hash) values($1, $2, $3)",
+            self.user_id,
+            self.username,
+            password_hash
+        )
+        .execute(db_pool)
+        .await
+        .expect("Failed to create test user");
     }
 }
 
@@ -121,26 +145,17 @@ pub async fn spawn_app(db_pool: PgPool) -> TestApp {
     let address = format!("http://127.0.0.1:{}", app.port);
     let port = app.port;
 
-    add_test_user(&db_pool).await;
-
     let _ = tokio::spawn(app.run_until_stopped());
 
-    TestApp {
+    let test_app = TestApp {
         address,
         port,
         db_pool,
         email_server,
-    }
-}
+        test_user: TestUser::generate(),
+    };
 
-async fn add_test_user(db_pool: &PgPool) {
-    sqlx::query!(
-        "INSERT INTO users (user_id, username, password) values($1, $2, $3)",
-        uuid::Uuid::new_v4(),
-        uuid::Uuid::new_v4().to_string(),
-        uuid::Uuid::new_v4().to_string()
-    )
-    .execute(db_pool)
-    .await
-    .expect("Failed to create test user");
+    test_app.test_user.store(&test_app.db_pool).await;
+
+    test_app
 }
