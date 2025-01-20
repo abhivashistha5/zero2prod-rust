@@ -176,3 +176,60 @@ async fn request_missing_authorization_is_rejected(db_pool: PgPool) {
         r#"Basic realm="publish""#
     );
 }
+
+#[sqlx::test]
+async fn non_existing_user_is_rejected(db_pool: PgPool) {
+    let app = spawn_app(db_pool).await;
+
+    let username = uuid::Uuid::new_v4().to_string();
+    let password = uuid::Uuid::new_v4().to_string();
+
+    let response = reqwest::Client::new()
+        .post(&format!("{}/newsletter", app.address))
+        .basic_auth(username, Some(password))
+        .json(&serde_json::json!({
+            "title": "Newsletter title",
+            "content": {
+           "text": "Newsletter as plain text",
+            "html": "<p>Newsletter body as html</p>"
+        }
+        }))
+        .send()
+        .await
+        .expect("Failed to execute the request");
+
+    assert_eq!(reqwest::StatusCode::UNAUTHORIZED, response.status());
+    assert_eq!(
+        r#"Basic realm="publish""#,
+        response.headers()["WWW-Authenticate"]
+    );
+}
+
+#[sqlx::test]
+async fn invalid_password_is_rejected(db_pool: PgPool) {
+    let app = spawn_app(db_pool).await;
+    let username = app.test_user.username;
+
+    // Random password
+    let password = uuid::Uuid::new_v4().to_string();
+
+    let response = reqwest::Client::new()
+        .post(&format!("{}/newsletter", app.address))
+        .basic_auth(username, Some(password))
+        .json(&serde_json::json!({
+            "title": "Newsletter title",
+            "content": {
+           "text": "Newsletter as plain text",
+            "html": "<p>Newsletter body as html</p>"
+        }
+        }))
+        .send()
+        .await
+        .expect("Failed to execute the request");
+
+    assert_eq!(reqwest::StatusCode::UNAUTHORIZED, response.status());
+    assert_eq!(
+        r#"Basic realm="publish""#,
+        response.headers()["WWW-Authenticate"]
+    );
+}
