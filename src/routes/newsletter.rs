@@ -11,7 +11,9 @@ use base64::Engine;
 use secrecy::{ExposeSecret, Secret};
 use sqlx::PgPool;
 
-use crate::{domain::SubscriberEmail, email_client::EmailClient};
+use crate::{
+    domain::SubscriberEmail, email_client::EmailClient, telemetry::spawn_blocking_with_tracing,
+};
 
 #[derive(serde::Deserialize)]
 pub struct PublishNLBody {
@@ -134,12 +136,8 @@ async fn validate_credentials(
         .map_err(PublishError::UnexpectedError)?
         .ok_or_else(|| PublishError::AuthError(anyhow::anyhow!("Unknown username")))?;
 
-    let current_span = tracing::Span::current();
-    tokio::task::spawn_blocking(move || {
-        // We then pass ownership to it into the closure
-        // and explicitly executes all our computation
-        // within its scope.
-        current_span.in_scope(|| verify_password_hash(expected_password_hash, credentials.password))
+    spawn_blocking_with_tracing(move || {
+        verify_password_hash(expected_password_hash, credentials.password)
     })
     .await
     // spawn_blocking is fallible - we have a nested Result here!
